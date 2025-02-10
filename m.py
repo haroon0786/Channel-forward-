@@ -1,14 +1,28 @@
 import logging
 import asyncio
+import threading
+from flask import Flask
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
 
 # Configure logging to see debug output in the console.
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO  # You can change this to DEBUG for even more details.
+    level=logging.INFO  # Change to DEBUG for more details.
 )
 
+# --- Dummy Flask Web Server for Koyeb Health Checks ---
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is running"
+
+def run_flask():
+    # Listen on 0.0.0.0 so that the port is accessible externally.
+    app.run(host="0.0.0.0", port=8000)
+
+# --- Telegram Bot Code ---
 class MediaGroupForwarder:
     def __init__(self, sources, destinations, delay=2.5):
         """
@@ -23,7 +37,6 @@ class MediaGroupForwarder:
         self.delay = delay
 
     async def handle_update(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        # Log the entire update for debugging purposes.
         logging.debug(f"Received update: {update}")
 
         # Process only channel posts.
@@ -41,7 +54,6 @@ class MediaGroupForwarder:
         media_group_id = msg.media_group_id
 
         if media_group_id:
-            # Use a tuple (source_id, media_group_id) as the key.
             key = (source_id, media_group_id)
             async with self.lock:
                 if key not in self.media_groups:
@@ -55,7 +67,6 @@ class MediaGroupForwarder:
             await self.forward_single(msg, context, source_id)
 
     async def process_group(self, key, context: ContextTypes.DEFAULT_TYPE, source_id: int):
-        # Wait to allow all media group messages to arrive.
         await asyncio.sleep(self.delay)
         async with self.lock:
             if key not in self.media_groups:
@@ -79,7 +90,6 @@ class MediaGroupForwarder:
                 except Exception as e:
                     logging.error(f"Error forwarding media group {media_group_id} to destination {dest_id}: {e}")
 
-            # Remove the media group data after processing.
             del self.media_groups[key]
 
     async def forward_single(self, message, context: ContextTypes.DEFAULT_TYPE, source_id: int):
@@ -97,12 +107,15 @@ class MediaGroupForwarder:
                 logging.error(f"Error forwarding message {message.message_id} to destination {dest_id}: {e}")
 
 if __name__ == '__main__':
-    # Define multiple source channel IDs (ensure the bot is added to these channels with proper permissions).
+    # Start the Flask web server in a separate thread.
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
+    # Define source and destination channel IDs.
     sources = [
         -1002168050616,  # First source channel ID
-        -1002168050616   # Second source channel ID
+        -1002168050616   # Second source channel ID (if needed)
     ]
-    # Define multiple destination channel IDs (ensure the bot has rights to post in these channels).
     destinations = [
         -1002382776169,
         -1002343397921,
@@ -120,14 +133,11 @@ if __name__ == '__main__':
 
     forwarder = MediaGroupForwarder(sources, destinations)
     
+    # Build the Telegram application.
     application = ApplicationBuilder().token('7893173971:AAH7v3zT8KKX3gCtDdIrkL9PsffZodPiTSM').build()
 
-    # The MessageHandler with filters.ALL will capture all types of updates.
+    # Add a message handler to process all updates.
     application.add_handler(MessageHandler(filters.ALL, forwarder.handle_update))
 
-    # Optionally, specify allowed_updates if you need to ensure channel posts are received:
-    # allowed_updates = ["channel_post", "message", "edited_channel_post"]
-    # application.run_polling(allowed_updates=allowed_updates)
-
-    # Otherwise, run polling normally:
+    # Run polling. The Flask server is already running in a separate thread.
     application.run_polling()
