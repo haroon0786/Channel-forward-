@@ -114,10 +114,10 @@ if __name__ == '__main__':
     # Define source and destination channel IDs.
     sources = [
         -1001859547091,  # First source channel ID
-        -1001269559500   # Second source channel ID (if needed)
+        -1002379836408   # Second source channel ID (if needed)
     ]
     destinations = [
-        -1002458903532
+        -1002402044558
     ]
 
     forwarder = MediaGroupForwarder(sources, destinations)
